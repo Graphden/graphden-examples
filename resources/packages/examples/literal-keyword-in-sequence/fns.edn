@@ -1,0 +1,34 @@
+;; Carrying a *literal keyword* through a `:sequence`-typed slot.
+;;
+;; Sequence slots resolve a BARE keyword item as a fn-ref (so
+;; `[:items [:my-fn]]` reads `:my-fn`'s result). To carry a keyword as
+;; DATA (e.g. a map key for `:get-in`/`:assoc-in/:path`, a header
+;; name, a status keyword), use the `{:value :kw}` shape — that
+;; explicitly says "this is a value-binding, not a fn-ref", and the
+;; loader stores the keyword as data without going through the bare-
+;; keyword auto-resolution path.
+
+
+{:namespace "examples.literal-keyword-in-sequence"
+ :description "Using `{:value :kw}` to carry a keyword as data inside a sequence slot."
+ :fns
+ [;; A literal-only path — every item is a keyword, all carried as data.
+  {:name :ex-literal-path
+   :description "Pure literal path `[:user :name]` for `:get-in`. Both keywords are wrapped via `{:value …}` because a bare `:user` / `:name` would resolve as a fn-ref inside the sequence-typed `:path` slot."
+   :parent :get-in
+   :args {:map {:value {:user {:name "Anna"}}}
+          :path [{:value :user}
+                 {:value :name}]}}
+
+  ;; Mixed: one literal keyword, one computed key.
+  {:name :ex-dynamic-path
+   :description "Path with one literal segment `:user` and one computed segment from the free arg `:field`. Demonstrates: a sequence slot accepts the fn-ref `:_ex-field-echo` (which exposes `:field` as a free arg) right alongside a `{:value :kw}` literal keyword."
+   :parent :get-in
+   :args {:map {:value {:user {:name "Anna" :age 30}}}
+          :path [{:value :user}
+                 :_ex-field-echo]}}
+
+  {:name :_ex-field-echo
+   :description "Echo helper exposing the free arg `:field` for the dynamic-path example."
+   :parent :identity
+   :args {:value {:as :field}}}]}

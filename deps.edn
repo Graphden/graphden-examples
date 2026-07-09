@@ -1,0 +1,4 @@
+;; graphden-examples — pedagogical fn-def examples for graphden, extracted from
+;; the monorepo as a standalone, optional package (dev/learning only; never
+;; loaded in a production graphden). Pure composition over `core`, no base-fns.
+{:paths ["resources"]}

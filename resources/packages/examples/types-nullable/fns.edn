@@ -1,0 +1,96 @@
+;; Union types — the canonical "T or nil" shape via `[:union :null T]`.
+;;
+;; Only `:nullable-text` ships as a named alias (in
+;; `core/refinements/fns.edn`) because it's used 12+ times across the
+;; standard packages. For the other primitives — `:int`, `:bool`,
+;; `:numeric`, `:uuid` — write `[:union :null T]` inline; that's
+;; three keywords, not worth a named row.
+;;
+;; A slot typed `:nullable-T` accepts BOTH `nil` and a `T`-typed
+;; value. The subtype rule rejects passing `:nullable-T` where a
+;; non-null `:T` is expected, forcing the caller to choose a
+;; narrowing strategy:
+;;
+;;   1. SUBSTITUTE — replace nil with a default value.
+;;   2. THROW — refuse to continue when nil arrives.
+;;   3. PROPAGATE — keep the nullable shape and push the burden up.
+;;
+;; This module shows construction and the SUBSTITUTE narrowing
+;; pattern (the most common one in real code). The base-fns
+;; touched here — :const, :get, :nil?, :if — already produce
+;; nullable values in their natural use; aliases just give the
+;; pattern a name.
+;;
+;; Verified end-to-end on 2026-04-29 against the dev system:
+;;   ex-nullable-nil       → nil
+;;   ex-nullable-text      → "hello"
+;;   ex-lookup-with-default → "none"
+;;   ex-env-maybe          → nil          (UNSET_GRAPHDEN_VAR isn't set)
+;;   ex-env-or-local       → "local"      (substitute pattern)
+
+
+{:namespace "examples.types-nullable"
+ :description "Union types via :nullable-T aliases (:null + base). Demonstrates construction, lookup-with-default, and the substitute-on-nil narrowing pattern."
+ :fns
+ [;; --- construction ---
+  ;;
+  ;; Both literals are valid for a `:nullable-text` slot. The
+  ;; :nullable-text alias resolves to `:nullable-text`, so
+  ;; nil ∈ :null and "hello" ∈ :text both subtype the union.
+  {:name :ex-nullable-nil
+   :description "Carries `nil`. For a `:nullable-text` slot this is the :null half of the union; for a non-null `:text` slot it would FAIL the type check."
+   :parent :const
+   :args {:value nil}}
+
+  {:name :ex-nullable-text
+   :description "Carries the string \"hello\". For a `:nullable-text` slot this is the :text half of the union; same value also fits a plain `:text` slot."
+   :parent :const
+   :args {:value "hello"}}
+
+  ;; --- nullable producer: :get with missing key ---
+  ;;
+  ;; --- substitute pattern via :get's :default arg ---
+  ;;
+  ;; `:get` already takes :default; supplying it narrows the
+  ;; result type from "could-be-nil" to "always present" because
+  ;; the missing-key path returns the default instead of nil.
+  ;; Cleanest substitution form when the producer is :get/:get-in.
+  ;;
+  ;; (A `:get` of a literal record with a literal absent key and NO
+  ;; `:default` is a type error — the type-checker can prove the key
+  ;; is missing and treats it as a typo. The SUBSTITUTE form below is
+  ;; the supported way to look something up that may be absent.)
+  {:name :ex-lookup-with-default
+   :description "Same lookup but with `:default \"none\"` — runtime returns \"none\" instead of nil. Cleanest narrowing for :get-style producers; the result is unconditionally :text."
+   :parent :get
+   :args {:coll {:value {:a 1}}
+          :key {:value :missing-key}
+          :default "none"}}
+
+  ;; --- nullable producer: :env reads OS variable ---
+  ;;
+  ;; :env's declared return is `:nullable-text` (`:nullable-text`)
+  ;; — it yields the variable's value or nil if unset. Use a
+  ;; substitute pattern below to narrow it to non-null `:text`.
+  {:name :ex-env-maybe
+   :description "Read $UNSET_GRAPHDEN_VAR — returns nil because the var isn't set in the test environment. A clean `:nullable-text` producer: `:env`'s declared return is `:nullable-text`, so callers must narrow explicitly before using it where non-null `:text` is required."
+   :parent :env
+   :args {:name "UNSET_GRAPHDEN_VAR"}}
+
+  ;; --- substitute pattern via :if + :nil? ---
+  ;;
+  ;; The general substitution recipe when the producer DOESN'T
+  ;; support a :default arg: probe with :nil?, branch via :if,
+  ;; provide a literal fallback. The :else branch threads the
+  ;; original (now narrowed-to-non-nil-by-flow) through.
+  {:name :ex-env-or-local
+   :description "Read $UNSET_GRAPHDEN_VAR, fall back to \"local\" if it's nil — the universal substitute idiom: a `:nil?` probe gates an `:if`. Works for any nullable producer even without a built-in `:default`. (`:coalesce` is the more direct form — it strips `:null` from the value's type.)"
+   :parent :if
+   :args {:test :_ex-env-is-nil?
+          :then {:value "local"}
+          :else :ex-env-maybe}}
+
+  {:name :_ex-env-is-nil?
+   :description "Predicate: is :ex-env-maybe nil? Gates the :if above."
+   :parent :nil?
+   :args {:value :ex-env-maybe}}]}
